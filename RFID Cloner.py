@@ -188,7 +188,7 @@ class vent_princ:
         
         
         # Mostrar código en etiqueta de estado
-        
+        self.label_status.config(text = "")
     
     # Escribir datos a una tarjeta
     def escribir_rfid():
@@ -196,7 +196,7 @@ class vent_princ:
         
         
         # Actualizar etiqueta de estado
-        
+        self.label_status.config(text = "")
     
 # Punto de entrada de la aplicación
 if __name__ == "__main__":
