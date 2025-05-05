@@ -1,12 +1,16 @@
 import tkinter
 from tkinter import ttk
 import os
-
-# Pines para SDA y SCK en Raspberry Pi 4 con RFID-RC522
-
+import threading
+import time
+import RPi.GPIO as GPIO
+from MFRC522 import MFRC522
 
 class vent_princ:
     def __init__(self):
+        # Raspberry Pi 4 con RFID-MFRC522 (GPIO 8 - SDA, GPIO 11 - SCLK, GPIO 17 - RST, GPIO 10 - MOSI, GPIO 9 - MISO)
+        self.lector_val = MFRC522()
+        
         # VENTANA PRINCIPAL
         # Configuración inicial de la ventana principal
         self.instancia_princ = tkinter.Tk()
@@ -14,8 +18,8 @@ class vent_princ:
         self.instancia_princ.configure(bg = "white")
         
         # Añadir padding general a toda la ventana
-        self.instancia_princ['padx'] = 5
-        self.instancia_princ['pady'] = 5
+        self.instancia_princ['padx'] = 4
+        self.instancia_princ['pady'] = 4
 
         # MENÚ SUPERIOR
         # Crea la barra de menú principal
@@ -32,10 +36,10 @@ class vent_princ:
         # SECCIÓN DE BOTONES
         # Marco contenedor para los botones Leer/Escribir
         self.marco_botones = tkinter.Frame(self.instancia_princ, bg = "white")
-        self.marco_botones.pack(fill = tkinter.X, padx = 5, pady = 5)
+        self.marco_botones.pack(fill = tkinter.X, padx = 4, pady = 4)
         
         # Botón para leer datos
-        self.boton_leer = tkinter.Button(self.marco_botones, text = "Leer")
+        self.boton_leer = tkinter.Button(self.marco_botones, text = "Leer", command=self.iniciar_lectura_rfid)
         self.boton_leer.pack(side = tkinter.LEFT, expand = True, fill = tkinter.X, padx = (0, 2))
         
         # Botón para escribir datos
@@ -44,22 +48,22 @@ class vent_princ:
 
         # ÁREA DE TEXTO
         # Caja de texto para mostrar información
-        self.caja_texto = tkinter.Text(self.instancia_princ, font = ("Arial", 11), height = 3, bg = "white", fg = "black", bd = 1)
-        self.caja_texto.pack(fill = tkinter.X, padx = 5, pady = 5)
+        self.caja_texto = tkinter.Text(self.instancia_princ, font = ("Arial", 11), height = 2, bg = "white", fg = "black", bd = 1)
+        self.caja_texto.pack(fill = tkinter.X, padx = 4, pady = 4)
 
         # BARRA DE ESTADO
         # Etiqueta para mostrar el estado de las operaciones
         self.label_status = tkinter.Label(self.instancia_princ, text = "", bg = "#eeeeee", fg = "#444444", font = ("Arial", 11))
-        self.label_status.pack(fill = tkinter.X,padx = 5, pady = 5)
+        self.label_status.pack(fill = tkinter.X,padx = 4, pady = 4)
         
         # Línea divisoria visual
         self.linea_div = tkinter.Frame(self.instancia_princ, height = 1, bg = "#d3d3d3")
-        self.linea_div.pack(fill = tkinter.X, padx = 5, pady = 5)
+        self.linea_div.pack(fill = tkinter.X, padx = 4, pady = 4)
 
         # FORMULARIO DE DATOS
         # Marco principal para el formulario
         self.marco_formulario = tkinter.Frame(self.instancia_princ, bg = "white")
-        self.marco_formulario.pack(fill = tkinter.X, padx = 5, pady = 5, expand = True)
+        self.marco_formulario.pack(fill = tkinter.X, padx = 4, pady = 4, expand = True)
 
         # Columna para el campo Usuario
         self.col_usuario = tkinter.Frame(self.marco_formulario, bg = "white")
@@ -90,11 +94,22 @@ class vent_princ:
         
         self.boton_agregar = tkinter.Button(self.col_boton, text = "Agregar")
         self.boton_agregar.pack(fill = tkinter.BOTH, expand = True)
+        
+        # BARRA DE BÚSQUEDA
+        self.barra_busqueda = tkinter.Frame(self.instancia_princ, bg = "white")
+        self.barra_busqueda.pack(fill = tkinter.X, padx = 4, pady = 4)
 
+        self.caja_busqueda = tkinter.Entry(self.barra_busqueda, font = ("Arial", 11), bg = "white", fg = "gray", bd = 1)
+        self.caja_busqueda.insert(0, "Buscar...")
+        self.caja_busqueda.bind("<FocusIn>", self.eliminar_placeholder)
+        self.caja_busqueda.bind("<FocusOut>", self.agregar_placeholder)
+        self.caja_busqueda.bind("<KeyRelease>", self.buscar_en_tabla)
+        self.caja_busqueda.pack(fill = tkinter.X, expand = True)
+        
         # TABLA DE DATOS
         # Marco contenedor para la tabla
         self.marco_tabla = tkinter.Frame(self.instancia_princ, bg = "white")
-        self.marco_tabla.pack(fill = tkinter.BOTH, expand = True, padx = 5, pady = 5)
+        self.marco_tabla.pack(fill = tkinter.BOTH, expand = True, padx = 4, pady = 4)
 
         # Barra de desplazamiento vertical
         self.scroll_tabla = tkinter.Scrollbar(self.marco_tabla)
@@ -119,13 +134,70 @@ class vent_princ:
         # Menú que aparece al hacer clic derecho en la tabla
         self.menu_contextual = tkinter.Menu(self.instancia_princ, tearoff = 0)
         self.menu_contextual.add_command(label = "Eliminar", command = self.eliminar_fila_seleccionada)
+        self.menu_contextual.add_command(label = "Seleccionar código", command = self.seleccionar_codigo)
         
         self.tabla.bind("<Button-3>", self.mostrar_menu_contextual)
-
+        
+        # Cierra el menú contextual si se hace clic fuera
+        self.instancia_princ.bind("<Button-1>", lambda event: self.menu_contextual.unpost())
+        self.instancia_princ.bind("<Button-2>", lambda event: self.menu_contextual.unpost())
+        self.instancia_princ.bind("<Button-3>", self.mostrar_menu_contextual)
+        
+        # ACCIONES
+        self.boton_leer.config(command=self.iniciar_lectura_rfid)
+        self.boton_escribir.config(command=self.iniciar_escritura_rfid)
+        self.boton_agregar.config(command=self.agregar_datos_tabla)
+        
         # Carga los datos iniciales desde el archivo
         self.cargar_datos()
-    
+
     # FUNCIONES
+    # Elimina el texto del placeholder cuando el usuario hace clic en la caja de búsqueda
+    def eliminar_placeholder(self, event):
+        if self.caja_busqueda.get() == "Buscar...":
+            self.caja_busqueda.delete(0, tkinter.END)
+            self.caja_busqueda.config(fg="black")
+    
+    # Restaura el placeholder si la caja de búsqueda queda vacía al perder el foco
+    def agregar_placeholder(self, event):
+        if not self.caja_busqueda.get():
+            self.caja_busqueda.insert(0, "Buscar...")
+            self.caja_busqueda.config(fg="gray")
+    
+    # Filtra en tiempo real los datos actualmente visibles en la tabla, sin leer desde el archivo
+    def buscar_en_tabla(self, event):
+        filtro = self.caja_busqueda.get().strip().lower()
+
+        # Limpiar el placeholder si está presente
+        if filtro == "buscar...":
+            filtro = ""
+
+        # Obtener todos los datos del archivo (no sólo los visibles)
+        datos_originales = []
+        if os.path.exists("data.txt"):
+            with open("data.txt", "r", encoding="utf-8") as f:
+                for linea in f:
+                    linea = linea.strip()
+                    
+                    if "-" in linea:
+                        nombre, codigo = linea.split("-", 1)
+                        datos_originales.append((nombre.strip(), codigo.strip()))
+
+        # Limpiar tabla completamente
+        for item in self.tabla.get_children():
+            self.tabla.delete(item)
+
+        # Si no hay filtro o se borró todo, mostrar todos los datos
+        if not filtro:
+            for nombre, codigo in datos_originales:
+                self.tabla.insert("", "end", values=(nombre, codigo))
+        else:
+            # Filtrar según el texto de búsqueda
+            for nombre, codigo in datos_originales:
+                if (filtro in str(nombre).lower() or 
+                    filtro in str(codigo).lower()):
+                    self.tabla.insert("", "end", values=(nombre, codigo))
+    
     # Cargar datos del archivo de texto hacia la tabla
     def cargar_datos(self):
         # Carga los datos desde el archivo data.txt a la tabla
@@ -161,7 +233,30 @@ class vent_princ:
         
         for item in seleccion:
             self.tabla.delete(item)
+    
+    # Seleccionar código de fila seleccionada
+    def seleccionar_codigo(self):
+        # Variable para el valor del código
+        codigo_celda = ""
+        
+        # Obtener la fila seleccionada en la tabla
+        seleccion = self.tabla.selection()
 
+        if seleccion:
+            # Obtener el primer ítem seleccionado
+            item = seleccion[0]
+            
+            # Obtener el valor de la columna "Código" de la fila seleccionada
+            codigo_celda = self.tabla.item(item)["values"][1]
+            
+            # Actualizar caja de texto con código seleccionado
+            self.caja_texto.delete("1.0", tkinter.END)
+            self.caja_texto.insert(tkinter.END, codigo_celda)
+            
+            # Actualizar caja de código con código seleccionado
+            self.caja_código.delete(0, tkinter.END)
+            self.caja_código.insert(0, codigo_celda)
+    
     # Guardar tabla en archivo de texto
     def guardar_datos(self):
         # Guarda los datos de la tabla en el archivo data.txt
@@ -173,34 +268,138 @@ class vent_princ:
                 f.write(f"{nombre}-{código}\n")
         
         self.label_status.config(text = "Datos guardados")
-    
+
     # Agregar campos a la tabla
-    def agregar_datos_tabla():
-        # Tomar los textos de los campos
+    def agregar_datos_tabla(self):
+        # Obtener los valores de los campos de usuario y código
+        usuario = self.caja_usuario.get()
+        codigo = self.caja_código.get()
         
+        # Verificar que ambos campos no sean vacíos
+        if not usuario or not codigo:
+            self.label_status.config(text="Error: Debe completar ambos campos")
+            
+            return
         
-        # Verificar que ambos campos no sean nulos y estén en el formato correcto
+        # Verificar que el código no tenga más de 16 carácteres
+        if len(codigo) > 16:
+            self.label_status.config(text="Error: No más de 16 carácteres")
+            
+            return
         
+        # Si los datos son válidos, agregar la fila a la tabla
+        self.tabla.insert("", "end", values=(usuario, codigo))
         
-        # Agregar datos en la tabla
+        # Mostrar mensaje de éxito
+        self.label_status.config(text="Datos agregados correctamente")
+
+    # Leer datos desde una tarjeta RFID
+    def leer_rfid(self):
+        self.label_status.config(text="Aproxime tarjeta...")
         
+        while True:
+            # Esperar la tarjeta
+            (status, tag_type) = self.lector_val.MFRC522_Request(self.lector_val.PICC_REQIDL)
+            
+            if status == self.lector_val.MI_OK:
+                # Leer el UID
+                (status, uid) = self.lector_val.MFRC522_Anticoll()
+                
+                if status == self.lector_val.MI_OK:
+                    # Convertir el UID a cadena
+                    codigo_rfid = ''.join([str(i) for i in uid])
+                    
+                    # Mostrar código en etiqueta de estado
+                    self.label_status.config(text=f"Código leído: {codigo_rfid}")
+                    
+                    # Actualizar caja de texto con código RFID
+                    self.caja_texto.delete("1.0", tkinter.END)
+                    self.caja_texto.insert(tkinter.END, codigo_rfid)
+                    
+                    # Actualizar caja de código con código RFID
+                    self.caja_código.delete(0, tkinter.END)
+                    self.caja_código.insert(0, codigo_rfid)
+                    
+                    break
+                else:
+                    self.label_status.config(text="Error de lectura")
+            
+            time.sleep(0.5)
     
-    # Leer datos desde una tarjeta
-    def leer_rfid():
-        # Leer RFID
+    # Iniciar lectura RFID en un hilo
+    def iniciar_lectura_rfid(self):
+        # Iniciar el hilo para leer la tarjeta RFID
+        threading.Thread(target=self.leer_rfid, daemon=True).start()
+
+    # Proceso que realiza la escritura en la tarjeta RFID
+    def escribir_rfid(self, codigo_rfid):
+        # Esperamos por la tarjeta RFID
+        self.label_status.config(text="Aproxime tarjeta...")
+
+        while True:
+            # Esperar la tarjeta
+            (status, tag_type) = self.lector_val.MFRC522_Request(self.lector_val.PICC_REQIDL)
+            
+            if status == self.lector_val.MI_OK:
+                # Leer el UID
+                (status, uid) = self.lector_val.MFRC522_Anticoll()
+
+                if status == self.lector_val.MI_OK:
+                    # Autenticar el bloque (usamos el bloque 8 como ejemplo - Sector 2, Bloque 0)
+                    bloque = 8
+                    clave = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]  # Clave por defecto
+                    
+                    # Autenticar
+                    status = self.lector_val.MFRC522_Auth(self.lector_val.PICC_AUTHENT1A, bloque, clave, uid)
+                    
+                    if status == self.lector_val.MI_OK:
+                        # Convertir el código a bytes y rellenar con espacios si es necesario
+                        datos = list(codigo_rfid.ljust(16)[:16].encode('ascii'))
+                        
+                        # Escribir en el bloque
+                        status = self.lector_val.MFRC522_Write(bloque, datos)
+                        
+                        if status == self.lector_val.MI_OK:
+                            # Confirmación de escritura
+                            self.label_status.config(text=f"Código escrito: {codigo_rfid}")
+                            
+                            # Actualizar caja de código con código de caja de texto
+                            self.caja_código.delete(0, tkinter.END)
+                            self.caja_código.insert(0, codigo_rfid)
+                            
+                            # Detener la comunicación con la tarjeta
+                            self.lector_val.MFRC522_StopCrypto1()
+                            
+                            break
+                        else:
+                            self.label_status.config(text="Error al escribir")
+                    else:
+                        self.label_status.config(text="Error de autenticación")
+                    
+                    break
+                else:
+                    self.label_status.config(text="Error de lectura")
+            
+            time.sleep(0.5)
+
+    # Escribir datos a una tarjeta RFID
+    def iniciar_escritura_rfid(self):
+        # Obtener el código a escribir desde la caja de texto
+        codigo_rfid = self.caja_texto.get("1.0", tkinter.END).strip()
         
+        # Verificar que el código no tenga más de 16 carácteres
+        if len(codigo_rfid) > 16:
+            self.label_status.config(text="Error: No más de 16 carácteres")
+            
+            return
+        elif len(codigo_rfid) == 0:
+            self.label_status.config(text="Error: Ingrese código")
+            
+            return
         
-        # Mostrar código en etiqueta de estado
-        
-    
-    # Escribir datos a una tarjeta
-    def escribir_rfid():
-        # Escribir RFID
-        
-        
-        # Actualizar etiqueta de estado
-        
-    
+        # Iniciar el proceso de escritura en un hilo para no bloquear la interfaz
+        threading.Thread(target=self.escribir_rfid, args=(codigo_rfid,), daemon=True).start()
+
 # Punto de entrada de la aplicación
 if __name__ == "__main__":
     vent_princ = vent_princ()
