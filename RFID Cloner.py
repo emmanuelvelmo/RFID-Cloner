@@ -11,6 +11,9 @@ class vent_princ:
         # Raspberry Pi 4 con RFID-MFRC522 (GPIO 8 - SDA, GPIO 11 - SCLK, GPIO 17 - RST, GPIO 10 - MOSI, GPIO 9 - MISO)
         self.lector_val = MFRC522()
         
+        # Buffer de la tabla
+        self.datos_tabla = []
+        
         # VENTANA PRINCIPAL
         # Configuración inicial de la ventana principal
         self.instancia_princ = tkinter.Tk()
@@ -172,31 +175,14 @@ class vent_princ:
         if filtro == "buscar...":
             filtro = ""
 
-        # Obtener todos los datos del archivo (no sólo los visibles)
-        datos_originales = []
-        if os.path.exists("data.txt"):
-            with open("data.txt", "r", encoding="utf-8") as f:
-                for linea in f:
-                    linea = linea.strip()
-                    
-                    if "-" in linea:
-                        nombre, codigo = linea.split("-", 1)
-                        datos_originales.append((nombre.strip(), codigo.strip()))
-
-        # Limpiar tabla completamente
+        # Limpiar la tabla
         for item in self.tabla.get_children():
             self.tabla.delete(item)
 
-        # Si no hay filtro o se borró todo, mostrar todos los datos
-        if not filtro:
-            for nombre, codigo in datos_originales:
-                self.tabla.insert("", "end", values=(nombre, codigo))
-        else:
-            # Filtrar según el texto de búsqueda
-            for nombre, codigo in datos_originales:
-                if (filtro in str(nombre).lower() or 
-                    filtro in str(codigo).lower()):
-                    self.tabla.insert("", "end", values=(nombre, codigo))
+        # Filtrar desde la lista interna actualizada
+        for nombre, codigo in self.datos_tabla:
+            if filtro in nombre.lower() or filtro in codigo.lower():
+                self.tabla.insert("", "end", values=(nombre, codigo)) 
     
     # Cargar datos del archivo de texto hacia la tabla
     def cargar_datos(self):
@@ -210,7 +196,10 @@ class vent_princ:
                     
                     if "-" in linea:
                         nombre, código = linea.split("-", 1)
-                        self.tabla.insert("", "end", values = (nombre.strip(), código.strip()))
+                        tupla = (nombre.strip(), código.strip())
+                        
+                        self.tabla.insert("", "end", values=tupla)
+                        self.datos_tabla.append(tupla)
         else:
             self.label_status.config(text = "Datos no encontrados")
     
@@ -232,6 +221,11 @@ class vent_princ:
         seleccion = self.tabla.selection()
         
         for item in seleccion:
+            valores = self.tabla.item(item)["values"]
+            
+            if valores in self.datos_tabla:
+                self.datos_tabla.remove(tuple(valores))
+            
             self.tabla.delete(item)
     
     # Seleccionar código de fila seleccionada
@@ -290,8 +284,8 @@ class vent_princ:
         # Si los datos son válidos, agregar la fila a la tabla
         self.tabla.insert("", "end", values=(usuario, codigo))
         
-        # Mostrar mensaje de éxito
-        self.label_status.config(text="Datos agregados correctamente")
+        # Agrega datos a la lista interna
+        self.datos_tabla.append((usuario, codigo))
 
     # Leer datos desde una tarjeta RFID
     def leer_rfid(self):
